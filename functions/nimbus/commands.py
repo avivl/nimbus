@@ -1,10 +1,14 @@
-"""Coammnds classes."""
+"""Commands classes."""
 from base64 import b64decode
 import boto3
+import digitalocean
 from slacker import Slacker
+import re
 import urllib2
 
+
 ***REMOVED*** = '***REMOVED***'
+***REMOVED*** = '***REMOVED***='
 
 
 class AbstractCommand(object):
@@ -72,7 +76,9 @@ class Route53(AbstractCommand):
                                 'Value': value})
         attachments = [{'title': dns,
                         'color': 'good',
-                        'fields': [{'title': field, 'value': value, 'short': True}
+                        'fields': [{'title': field,
+                                    'value': value,
+                                    'short': True}
                                    for field, value in record.items()]}
                        for record in results]
         if len(results) == 0:
@@ -109,8 +115,7 @@ class EC2(AbstractCommand):
                             'Type': instance.instance_type,
                             'VPC': instance.vpc_id,
                             'Region': region['RegionName']})
-                    attachments = [{'title': search,
-                                    'color': 'good',
+                    attachments = [{'color': 'good',
                                     'fields': [{'title': field, 'value': value,
                                                 'short': True}
                                                for field, value in
@@ -122,4 +127,47 @@ class EC2(AbstractCommand):
                 'title': 'Not found',
                 'text': search
             }]
-        self.post_message('EC2 Search', attachments)
+        self.post_message('EC2 Search for ' + search, attachments)
+
+
+class Droplets(AbstractCommand):
+
+    """Search for droplet ar DigitalOcean."""
+
+    def run(self):
+        """Entry point for the search. Iterate over instances records."""
+        if len(***REMOVED***) == 0:
+            attachments = [{
+                'color': 'danger',
+                'title': 'DO Token no found',
+            }]
+            self.post_message('EC2 Search', attachments)
+            return
+        kms = boto3.client('kms')
+        search = urllib2.unquote(self.args)
+        do_token = kms.decrypt(CiphertextBlob=b64decode(
+            ***REMOVED***))['Plaintext']
+        manager = digitalocean.Manager(token=do_token)
+        my_droplets = manager.get_all_droplets()
+        results = []
+        attachments = []
+        for droplet in my_droplets:
+            m = re.search(search, droplet.name)
+            if m:
+                results.append({
+                   'Name': droplet.name,
+                   'Region': droplet.region['name']})
+                attachments = [{'title': 'Name search',
+                                'color': 'good',
+                                'fields': [{'title': field, 'value': value,
+                                            'short': True}
+                                           for field, value in
+                                           record.items()]}
+                               for record in results]
+        if attachments == []:
+            attachments = [{
+                'color': 'danger',
+                'title': 'Not found',
+                'text': search
+            }]
+        self.post_message('Droplets Search', attachments)

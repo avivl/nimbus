@@ -9,9 +9,8 @@ import commands
 kms = boto3.client('kms')
 expected_token = kms.decrypt(CiphertextBlob=b64decode(
     ***REMOVED***))['Plaintext']
-
 COMMANDS = {'help': 'commands.Help',
-            'route53': 'commands.Route53', 'ec2': 'commands.EC2'}
+            'route53': 'commands.Route53', 'ec2': 'commands.EC2', 'droplets': 'commands.Droplets'}
 
 
 def handle(event, context):
