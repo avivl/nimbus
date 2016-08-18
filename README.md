@@ -1,5 +1,5 @@
 # Nimbus
-![Nimbus Logo][cloudy_image]
+![cloudy_image](cloudy_robot.png)
 
 ### AWS Lambda
 1. Lambda management is done with [Apex](http://apex.run/)
@@ -90,4 +90,4 @@
 ### Ready, Set, Go!
 
 You can deploy your code by running `apex deploy`
-[cloudy_image]: cloudy_robot.png
+
