@@ -7,24 +7,59 @@ import re
 import urllib2
 
 
-***REMOVED*** = '***REMOVED***'
-***REMOVED*** = '***REMOVED***='
-
-
 class AbstractCommand(object):
-
     """Base class for commands."""
 
     def __init__(self, args):
-        """Set up."""
+        """Get configuration data from DynamoDB."""
+        client = boto3.client('dynamodb')
+        config = client.scan(TableName='nimbus')['Items'][0]
+        kms = boto3.client('kms')
+        # Slack will send us a token with each request, we need to validate is
+        # in order to make sure that the code is callled from our "own" slack.
+        if 'SlackExpected' in config:
+            encrypted_expected_token = config['SlackExpected']['S']
+            expected_token = kms.decrypt(CiphertextBlob=b64decode(
+                encrypted_expected_token))['Plaintext']
+            if args['token'] != expected_token:
+                print "No matching token found!"
+                return
+        else:
+            print "Encrypted excpcted token not found in DB"
+            return
+
+        # Slack API token.
+        if 'SlackAPI' in config:
+            encrypted_slack_token = config['SlackAPI']['S']
+            self.slack_token = kms.decrypt(CiphertextBlob=b64decode(
+                encrypted_slack_token))['Plaintext']
+        else:
+            print "Slack API token not found"
+            return
+
+        # DigitalOcean API token.
+        if 'DigitalOcean' in config:
+            encrypted_digitalocean_token = config['DigitalOcean']['S']
+            self.digitalocean_token = kms.decrypt(CiphertextBlob=b64decode(
+                encrypted_digitalocean_token))['Plaintext']
+        else:
+            self.digitalocean_token = ""
+
+        # Bot icon URL
+        if 'icon' in config:
+            self.icon = config['icon']['S']
+        else:
+            self.icon = ""
+
+        # Name of the bot as displayed by Slack
+        if 'BotName' in config:
+            self.botname = config['BotName']['S']
+        else:
+            self.botname = 'Nimbus'
+
         self.channel_name = args['channel_name'].split('+')[0]
         self.user_name = args['user_name'].split('+')[0]
         self.args = args['text'].split('+')[2]
-        self.botname = 'Nimbus'
-        self.icon = 'http://am.rounds.com/cloudy_robot_200.png'
-        kms = boto3.client('kms')
-        self.slack_token = kms.decrypt(CiphertextBlob=b64decode(
-            ***REMOVED***))['Plaintext']
         self.slack = Slacker(self.slack_token)
 
     def run(self):
@@ -136,18 +171,15 @@ class Droplets(AbstractCommand):
 
     def run(self):
         """Entry point for the search. Iterate over instances records."""
-        if len(***REMOVED***) == 0:
+        if len(self.digitalocean_token) == 0:
             attachments = [{
                 'color': 'danger',
                 'title': 'DO Token no found',
             }]
             self.post_message('EC2 Search', attachments)
             return
-        kms = boto3.client('kms')
         search = urllib2.unquote(self.args)
-        do_token = kms.decrypt(CiphertextBlob=b64decode(
-            ***REMOVED***))['Plaintext']
-        manager = digitalocean.Manager(token=do_token)
+        manager = digitalocean.Manager(token=self.digitalocean_token)
         my_droplets = manager.get_all_droplets()
         results = []
         attachments = []
@@ -155,10 +187,9 @@ class Droplets(AbstractCommand):
             m = re.search(search, droplet.name)
             if m:
                 results.append({
-                   'Name': droplet.name,
-                   'Region': droplet.region['name']})
-                attachments = [{'title': 'Name search',
-                                'color': 'good',
+                    'Name': droplet.name,
+                    'Region': droplet.region['name']})
+                attachments = [{'color': 'good',
                                 'fields': [{'title': field, 'value': value,
                                             'short': True}
                                            for field, value in
