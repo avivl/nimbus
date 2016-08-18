@@ -1,25 +1,17 @@
 """Main file for Numbus."""
-from base64 import b64decode
-import boto3
 import commands
 
 # Enter the base-64 encoded, encrypted Slack command token (CiphertextBlob)
 
-***REMOVED*** = "***REMOVED***"
-kms = boto3.client('kms')
-expected_token = kms.decrypt(CiphertextBlob=b64decode(
-    ***REMOVED***))['Plaintext']
 COMMANDS = {'help': 'commands.Help',
-            'route53': 'commands.Route53', 'ec2': 'commands.EC2', 'droplets': 'commands.Droplets'}
+            'route53': 'commands.Route53',
+            'ec2': 'commands.EC2',
+            'droplets': 'commands.Droplets'}
 
 
 def handle(event, context):
     """Entry point for lambda."""
     param_map = _formparams_to_dict(event['formparams'])
-    """Check that the caller is legit"""
-
-    if param_map['token'] != expected_token:
-        return event
     if len(param_map['text'].split('+')) < 3:
         # call help
         return event

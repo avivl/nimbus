@@ -1,15 +1,9 @@
-# Compiled Object files, Static and Dynamic libs (Shared Objects)
-*
-project.json
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
+Nfo
 # C extensions
 *.so
 
 # Distribution / packaging
+*dist-info
 .Python
 env/
 build/
@@ -26,6 +20,7 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+*.pyc
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
