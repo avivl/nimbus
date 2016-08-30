@@ -6,7 +6,8 @@ import commands
 COMMANDS = {'help': 'commands.Help',
             'route53': 'commands.Route53',
             'ec2': 'commands.EC2',
-            'droplets': 'commands.Droplets'}
+            'droplets': 'commands.Droplets',
+            'sl': 'commands.SL'}
 
 
 def handle(event, context):
