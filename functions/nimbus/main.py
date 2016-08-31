@@ -1,7 +1,7 @@
 """Main file for Numbus."""
 import commands
 
-# Enter the base-64 encoded, encrypted Slack command token (CiphertextBlob)
+# Enter the base-64 encoded, encrypted Slack command secret (CiphertextBlob)
 
 COMMANDS = {'help': commands.Help,
             'route53': commands.Route53,
@@ -15,7 +15,7 @@ def handle(event, context):
 
     parse slack command and run one of the commands available.
     """
-    token, channel_name, user_name, text = _parse_slack_input(event['formparams'])
+    secret_token, channel_name, user_name, text = _parse_slack_input(event['formparams'])
     # text should be:
     # "nimbus <command> <args>"
     if text.split() < 3:
@@ -26,8 +26,47 @@ def handle(event, context):
     command_name, text = _pop_token(text)
 
     CommandClass = COMMANDS.get(command_name, COMMANDS['help'])
-    command = CommandClass(token, channel_name, user_name)
-    return command.run(text)
+
+    return run_command(CommandClass, secret_token, channel_name, user_name, text)
+
+
+def run_command(CommandClass, secret_token, channel_name, user_name, text):
+    from commands import Config, UserError, ConfigError, MessagePoster, is_valid_slack_secret
+    # init config
+    config = Config()
+
+    # check slack secret
+    if not is_valid_slack_secret(config, secret_token):
+        print 'slack secret does not match'
+        return
+
+    # init message poster for responding
+    try:
+        message_poster = MessagePoster(config, channel_name, user_name)
+    except ConfigError as e:
+        print 'error initializing', e
+        return
+
+    # init and run command
+    try:
+        command = CommandClass(config)
+        results = command.run(text)
+        if not results:
+            raise UserError('Not Found', text)
+    except ConfigError as e:
+        results = [{
+            'color': 'danger',
+            'title': str(e),
+        }]
+    except UserError as e:
+        results = [{
+            'color': 'danger',
+            'title': e.title,
+            'text': e.description,
+        }]
+
+    # respond with results
+    message_poster.post_message(CommandClass.__name__, results)
 
 
 def _parse_slack_input(query_string):

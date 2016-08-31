@@ -2,7 +2,6 @@
 from base64 import b64decode
 import os
 import re
-import urllib2
 
 from slacker import Slacker
 import SoftLayer
@@ -14,78 +13,23 @@ import digitalocean
 DEBUG = os.getenv('NIMBUS_DEBUG', 'true').lower() == 'true'
 
 
-class AbstractCommand(object):
-    """Base class for commands."""
+def is_valid_slack_secret(config, secret):
+    """
+    Slack will send us a token with each request, we need to validate is
+    in order to make sure that the code is callled from our "own" slack.
+    """
+    return DEBUG or secret == config.decrypt('SlackExpected')
 
-    def __init__(self, slack_token, channel_name, user_name):
-        """Get configuration data from DynamoDB."""
-        client = boto3.client('dynamodb')
-        config = client.scan(TableName='nimbus')['Items'][0]
-        kms = boto3.client('kms')
-        # Slack will send us a token with each request, we need to validate is
-        # in order to make sure that the code is callled from our "own" slack.
-        if 'SlackExpected' in config:
-            encrypted_expected_token = config['SlackExpected']['S']
-            expected_token = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_expected_token))['Plaintext']
-            if not DEBUG and slack_token != expected_token:
-                print "No matching token found!"
-                return
-        else:
-            print "Encrypted excpcted token not found in DB"
-            return
 
-        # Slack API token.
-        if 'SlackAPI' in config:
-            encrypted_slack_token = config['SlackAPI']['S']
-            self.slack_token = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_slack_token))['Plaintext']
-        else:
-            print "Slack API token not found"
-            return
+class MessagePoster(object):
+    """class for posting messages back to the user/ room."""
 
-        # DigitalOcean API token.
-        if 'DigitalOcean' in config:
-            encrypted_digitalocean_token = config['DigitalOcean']['S']
-            self.digitalocean_token = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_digitalocean_token))['Plaintext']
-        else:
-            self.digitalocean_token = ""
-
-        # Softlayern username.
-        if 'SLUserName' in config:
-            encrypted_softalyer_username = config['SLUserName']['S']
-            self.softalyer_username = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_softalyer_username))['Plaintext']
-        else:
-            self.softalyer_username = ""
-
-        # Softlayern API key.
-        if 'SLAPI' in config:
-            encrypted_softalyer_api_key = config['SLAPI']['S']
-            self.softalyer_api_key = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_softalyer_api_key))['Plaintext']
-        else:
-            self.softalyer_api_key = ""
-
-        # Bot icon URL
-        if 'icon' in config:
-            self.icon = config['icon']['S']
-        else:
-            self.icon = ""
-
-        # Name of the bot as displayed by Slack
-        if 'BotName' in config:
-            self.botname = config['BotName']['S']
-        else:
-            self.botname = 'Nimbus'
-
+    def __init__(self, config, channel_name, user_name):
+        self.slacker = Slacker(config.decrypt('SlackAPI'))
         self.channel_name = channel_name
         self.user_name = user_name
-
-    def run(self):
-        """Base function for commands excecution."""
-        return
+        self.icon = config.get('icon', '')  # Bot icon URL
+        self.botname = config.get('BotName', 'Nimbus')
 
     def post_message(self, msg, attachments):
         """Send a formated message to Slack."""
@@ -99,8 +43,7 @@ class AbstractCommand(object):
                 icon_url=self.icon)
             return
 
-        slack = Slacker(self.slack_token)
-        slack.chat.post_message(
+        self.slacker.chat.post_message(
             '#' + self.channel_name,
             msg,
             username=self.botname,
@@ -109,25 +52,72 @@ class AbstractCommand(object):
             icon_url=self.icon)
 
 
+class Config(object):
+    def __init__(self):
+        client = boto3.client('dynamodb')
+        self.config = client.scan(TableName='nimbus')['Items'][0]
+        self.kms = boto3.client('kms')
+
+    def __getitem__(self, key):
+        try:
+            return self.config[key]['S']
+        except KeyError:
+            raise ConfigError('missing configuration key %s' % key)
+
+    def __contains__(self, key):
+        return key in self.config
+
+    def decrypt(self, key):
+        return self.kms.decrypt(CiphertextBlob=b64decode(self[key]))['Plaintext']
+
+    def get(self, key, default=None):
+        return self.config.get(key, default)
+
+
+class ConfigError(Exception):
+    pass
+
+
+class UserError(Exception):
+    def __init__(self, title, description):
+        self.title = title
+        self.description = description
+
+
+class AbstractCommand(object):
+    """Base class for commands."""
+
+    def __init__(self, config):
+        """Get configuration data from DynamoDB."""
+        self.init_command(config)
+
+    def run(self, search):
+        """Base function for commands excecution."""
+        pass
+
+    def init_command(self, config):
+        """derived can implement to inject configuration."""
+        pass
+
+
 class Route53(AbstractCommand):
 
     """Serach for dns records at Route53."""
 
-    def run(self, args):
+    def run(self, search):
         """Entry point fo rthe serach. Iterate over dns records."""
         client = boto3.client('route53')
         hosted_zones = client.list_hosted_zones()['HostedZones']
-        dns = urllib2.unquote(args)
-        if dns.find('|') >= 0:
+        if search.find('|') >= 0:
             # Slack will send in the following format http://xxx.yyy.zz
             #  |xxx.yyy.zz>"""
-            dns = (urllib2.unquote(args)).split('|')[1].rstrip('>')
+            search = search.split('|')[1].rstrip('>')
         results = []
         for hosted_zone in hosted_zones:
             record_sets = client.list_resource_record_sets(
                 HostedZoneId=hosted_zone['Id'])['ResourceRecordSets']
             for record_set in record_sets:
-                if record_set.get('Name').rstrip('.') == dns:
+                if record_set.get('Name').rstrip('.') == search:
                     if record_set['Type'] == 'CNAME' or record_set[
                             'Type'] == 'A':
                         if 'ResourceRecords' not in record_set:
@@ -142,30 +132,23 @@ class Route53(AbstractCommand):
                                 'TTL': record_set['TTL'],
                                 'Value': value
                                 })
-        attachments = [{'title': dns,
+        attachments = [{'title': search,
                         'color': 'good',
                         'fields': [{'title': field,
                                     'value': value,
                                     'short': True}
                                    for field, value in record.items()]}
                        for record in results]
-        if len(results) == 0:
-            attachments = [{
-                'color': 'danger',
-                'title': 'Not found',
-                'text': dns
-            }]
-        self.post_message('Route53 Search', attachments)
+        return attachments
 
 
 class EC2(AbstractCommand):
 
     """Search for ec2 instances at AWS."""
 
-    def run(self, args):
+    def run(self, search):
         """Entry point for the search. Iterate over instances records."""
         ec2c = boto3.client('ec2')
-        search = urllib2.unquote(args)
         regions = ec2c.describe_regions()['Regions']
         results = []
         attachments = []
@@ -190,29 +173,18 @@ class EC2(AbstractCommand):
                                                for field, value in
                                                record.items()]}
                                    for record in results]
-        if attachments == []:
-            attachments = [{
-                'color': 'danger',
-                'title': 'Not found',
-                'text': search
-            }]
-        self.post_message('EC2 Search for ' + search, attachments)
+        return attachments
 
 
 class Droplets(AbstractCommand):
 
     """Search for droplet at DigitalOcean."""
 
-    def run(self, args):
+    def init_command(self, config):
+        self.digitalocean_token = config.decrypt('DigitalOcean')
+
+    def run(self, search):
         """Entry point for the search. Iterate over instances records."""
-        if len(self.digitalocean_token) == 0:
-            attachments = [{
-                'color': 'danger',
-                'title': 'DO Token not found',
-            }]
-            self.post_message('Droplets Search', attachments)
-            return
-        search = urllib2.unquote(args)
         manager = digitalocean.Manager(token=self.digitalocean_token)
         my_droplets = manager.get_all_droplets()
         results = []
@@ -230,39 +202,23 @@ class Droplets(AbstractCommand):
                                            for field, value in
                                            record.items()]}
                                for record in results]
-        if attachments == []:
-            attachments = [{
-                'color': 'danger',
-                'title': 'Not found',
-                'text': search
-            }]
-        self.post_message('Droplets Search', attachments)
+        return attachments
 
 
 class SL(AbstractCommand):
 
     """Search for VM's at Softlayer."""
 
-    def run(self, args):
+    def init_command(self, config):
+        self.softalyer_username = config.decrypt('SLUserName')
+        self.softalyer_api_key = config.decrypt('SLAPI')
+
+    def run(self, search):
         """Entry point for the search. Iterate over VM's records."""
-        if len(self.softalyer_username) == 0:
-            attachments = [{
-                'color': 'danger',
-                'title': 'SL Username not found',
-            }]
-            self.post_message('SL Search', attachments)
-            return
-        if len(self.softalyer_api_key) == 0:
-            attachments = [{
-                'color': 'danger',
-                'title': 'SL API Key not found',
-            }]
-            self.post_message('SL Search', attachments)
-            return
-        search = urllib2.unquote(args)
         client = SoftLayer.create_client_from_env(
             username=self.softalyer_username,
             api_key=self.softalyer_api_key)
+
         mgr = SoftLayer.VSManager(client)
         vsi = mgr.list_instances()
         results = []
@@ -280,13 +236,7 @@ class SL(AbstractCommand):
                                            for field, value in
                                            record.items()]}
                                for record in results]
-        if attachments == []:
-            attachments = [{
-                'color': 'danger',
-                'title': 'Not found',
-                'text': search
-            }]
-        self.post_message('SL Search', attachments)
+        return attachments
 
 
 class Help(AbstractCommand):
