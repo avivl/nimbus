@@ -17,7 +17,7 @@ DEBUG = os.getenv('NIMBUS_DEBUG', 'true').lower() == 'true'
 class AbstractCommand(object):
     """Base class for commands."""
 
-    def __init__(self, args):
+    def __init__(self, slack_token, channel_name, user_name):
         """Get configuration data from DynamoDB."""
         client = boto3.client('dynamodb')
         config = client.scan(TableName='nimbus')['Items'][0]
@@ -28,7 +28,7 @@ class AbstractCommand(object):
             encrypted_expected_token = config['SlackExpected']['S']
             expected_token = kms.decrypt(CiphertextBlob=b64decode(
                 encrypted_expected_token))['Plaintext']
-            if not DEBUG and args['token'] != expected_token:
+            if not DEBUG and slack_token != expected_token:
                 print "No matching token found!"
                 return
         else:
@@ -80,10 +80,8 @@ class AbstractCommand(object):
         else:
             self.botname = 'Nimbus'
 
-        self.channel_name = args['channel_name'].split('+')[0]
-        self.user_name = args['user_name'].split('+')[0]
-        self.args = args['text'].split('+')[2]
-        self.slack = Slacker(self.slack_token)
+        self.channel_name = channel_name
+        self.user_name = user_name
 
     def run(self):
         """Base function for commands excecution."""
@@ -100,7 +98,9 @@ class AbstractCommand(object):
                 attachments=attachments,
                 icon_url=self.icon)
             return
-        self.slack.chat.post_message(
+
+        slack = Slacker(self.slack_token)
+        slack.chat.post_message(
             '#' + self.channel_name,
             msg,
             username=self.botname,
@@ -113,15 +113,15 @@ class Route53(AbstractCommand):
 
     """Serach for dns records at Route53."""
 
-    def run(self):
+    def run(self, args):
         """Entry point fo rthe serach. Iterate over dns records."""
         client = boto3.client('route53')
         hosted_zones = client.list_hosted_zones()['HostedZones']
-        dns = urllib2.unquote(self.args)
+        dns = urllib2.unquote(args)
         if dns.find('|') >= 0:
             # Slack will send in the following format http://xxx.yyy.zz
             #  |xxx.yyy.zz>"""
-            dns = (urllib2.unquote(self.args)).split('|')[1].rstrip('>')
+            dns = (urllib2.unquote(args)).split('|')[1].rstrip('>')
         results = []
         for hosted_zone in hosted_zones:
             record_sets = client.list_resource_record_sets(
@@ -162,10 +162,10 @@ class EC2(AbstractCommand):
 
     """Search for ec2 instances at AWS."""
 
-    def run(self):
+    def run(self, args):
         """Entry point for the search. Iterate over instances records."""
         ec2c = boto3.client('ec2')
-        search = urllib2.unquote(self.args)
+        search = urllib2.unquote(args)
         regions = ec2c.describe_regions()['Regions']
         results = []
         attachments = []
@@ -203,7 +203,7 @@ class Droplets(AbstractCommand):
 
     """Search for droplet at DigitalOcean."""
 
-    def run(self):
+    def run(self, args):
         """Entry point for the search. Iterate over instances records."""
         if len(self.digitalocean_token) == 0:
             attachments = [{
@@ -212,7 +212,7 @@ class Droplets(AbstractCommand):
             }]
             self.post_message('Droplets Search', attachments)
             return
-        search = urllib2.unquote(self.args)
+        search = urllib2.unquote(args)
         manager = digitalocean.Manager(token=self.digitalocean_token)
         my_droplets = manager.get_all_droplets()
         results = []
@@ -243,7 +243,7 @@ class SL(AbstractCommand):
 
     """Search for VM's at Softlayer."""
 
-    def run(self):
+    def run(self, args):
         """Entry point for the search. Iterate over VM's records."""
         if len(self.softalyer_username) == 0:
             attachments = [{
@@ -259,7 +259,7 @@ class SL(AbstractCommand):
             }]
             self.post_message('SL Search', attachments)
             return
-        search = urllib2.unquote(self.args)
+        search = urllib2.unquote(args)
         client = SoftLayer.create_client_from_env(
             username=self.softalyer_username,
             api_key=self.softalyer_api_key)
@@ -287,3 +287,8 @@ class SL(AbstractCommand):
                 'text': search
             }]
         self.post_message('SL Search', attachments)
+
+
+class Help(AbstractCommand):
+    def run(self):
+        self.post_message('Help', [])
