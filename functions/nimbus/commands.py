@@ -3,6 +3,7 @@ from base64 import b64decode
 import boto3
 import digitalocean
 from slacker import Slacker
+import SoftLayer
 import re
 import urllib2
 
@@ -44,6 +45,22 @@ class AbstractCommand(object):
                 encrypted_digitalocean_token))['Plaintext']
         else:
             self.digitalocean_token = ""
+
+        # Softlayern username.
+        if 'SLUserName' in config:
+            encrypted_softalyer_username = config['SLUserName']['S']
+            self.softalyer_username = kms.decrypt(CiphertextBlob=b64decode(
+                encrypted_softalyer_username))['Plaintext']
+        else:
+            self.softalyer_username = ""
+
+        # Softlayern API key.
+        if 'SLAPI' in config:
+            encrypted_softalyer_api_key = config['SLAPI']['S']
+            self.softalyer_api_key = kms.decrypt(CiphertextBlob=b64decode(
+                encrypted_softalyer_api_key))['Plaintext']
+        else:
+            self.softalyer_api_key = ""
 
         # Bot icon URL
         if 'icon' in config:
@@ -108,7 +125,8 @@ class Route53(AbstractCommand):
                             results.append({
                                 'Type': record_set['Type'],
                                 'TTL': record_set['TTL'],
-                                'Value': value})
+                                'Value': value
+                                })
         attachments = [{'title': dns,
                         'color': 'good',
                         'fields': [{'title': field,
@@ -149,7 +167,8 @@ class EC2(AbstractCommand):
                             'Name': tag['Value'],
                             'Type': instance.instance_type,
                             'VPC': instance.vpc_id,
-                            'Region': region['RegionName']})
+                            'Region': region['RegionName']
+                            })
                     attachments = [{'color': 'good',
                                     'fields': [{'title': field, 'value': value,
                                                 'short': True}
@@ -167,16 +186,16 @@ class EC2(AbstractCommand):
 
 class Droplets(AbstractCommand):
 
-    """Search for droplet ar DigitalOcean."""
+    """Search for droplet at DigitalOcean."""
 
     def run(self):
         """Entry point for the search. Iterate over instances records."""
         if len(self.digitalocean_token) == 0:
             attachments = [{
                 'color': 'danger',
-                'title': 'DO Token no found',
+                'title': 'DO Token not found',
             }]
-            self.post_message('EC2 Search', attachments)
+            self.post_message('Droplets Search', attachments)
             return
         search = urllib2.unquote(self.args)
         manager = digitalocean.Manager(token=self.digitalocean_token)
@@ -188,7 +207,8 @@ class Droplets(AbstractCommand):
             if m:
                 results.append({
                     'Name': droplet.name,
-                    'Region': droplet.region['name']})
+                    'Region': droplet.region['name']
+                    })
                 attachments = [{'color': 'good',
                                 'fields': [{'title': field, 'value': value,
                                             'short': True}
@@ -202,3 +222,53 @@ class Droplets(AbstractCommand):
                 'text': search
             }]
         self.post_message('Droplets Search', attachments)
+
+
+class SL(AbstractCommand):
+
+    """Search for VM's at Softlayer."""
+
+    def run(self):
+        """Entry point for the search. Iterate over VM's records."""
+        if len(self.softalyer_username) == 0:
+            attachments = [{
+                'color': 'danger',
+                'title': 'SL Username not found',
+            }]
+            self.post_message('SL Search', attachments)
+            return
+        if len(self.softalyer_api_key) == 0:
+            attachments = [{
+                'color': 'danger',
+                'title': 'SL API Key not found',
+            }]
+            self.post_message('SL Search', attachments)
+            return
+        search = urllib2.unquote(self.args)
+        client = SoftLayer.create_client_from_env(
+            username=self.softalyer_username,
+            api_key=self.softalyer_api_key)
+        mgr = SoftLayer.VSManager(client)
+        vsi = mgr.list_instances()
+        results = []
+        attachments = []
+        for vs in vsi:
+            m = re.search(search, vs['hostname'])
+            if m:
+                results.append({
+                    'Name': vs['hostname'],
+                    'Data Center': vs['datacenter']['longName']
+                })
+                attachments = [{'color': 'good',
+                                'fields': [{'title': field, 'value': value,
+                                            'short': True}
+                                           for field, value in
+                                           record.items()]}
+                               for record in results]
+        if attachments == []:
+            attachments = [{
+                'color': 'danger',
+                'title': 'Not found',
+                'text': search
+            }]
+        self.post_message('SL Search', attachments)

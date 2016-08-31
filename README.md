@@ -1,5 +1,5 @@
 # Nimbus
-![cloudy_image](cloudy_robot.png)
+![Nimbus Logo](cloudy_robot.png)
 
 ### AWS Lambda
 1. Lambda management is done with [Apex](http://apex.run/)
@@ -67,6 +67,8 @@
  1. DigitalOcean - Encrypted DigitalOcean key
  1. SlackAPI - Encrypted SlackAPI Token
  1. SlackExpected - Encrypted Slack verification token
+ 1. SLUserName - SoftLayer user name
+ 1. SLAPI - SoftLayer API key
  1. icon - Url for the bot icon
 1. Give your function's role permission for the kms:Decrypt action.
    Example:
@@ -90,4 +92,3 @@
 ### Ready, Set, Go!
 
 You can deploy your code by running `apex deploy`
-
