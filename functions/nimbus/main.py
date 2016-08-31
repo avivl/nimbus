@@ -1,5 +1,6 @@
-"""Main file for Numbus."""
+"""Main file for Nimbus."""
 import commands
+from commands import Config, NoResultsError, ConfigError, MessagePoster, is_valid_slack_secret
 
 # Enter the base-64 encoded, encrypted Slack command secret (CiphertextBlob)
 
@@ -31,7 +32,6 @@ def handle(event, context):
 
 
 def run_command(CommandClass, secret_token, channel_name, user_name, text):
-    from commands import Config, UserError, ConfigError, MessagePoster, is_valid_slack_secret
     # init config
     config = Config()
 
@@ -52,21 +52,13 @@ def run_command(CommandClass, secret_token, channel_name, user_name, text):
         command = CommandClass(config)
         results = command.run(text)
         if not results:
-            raise UserError('Not Found', text)
+            raise NoResultsError(text)
+        message_poster.post_results(CommandClass.__name__, results)
     except ConfigError as e:
-        results = [{
-            'color': 'danger',
-            'title': str(e),
-        }]
-    except UserError as e:
-        results = [{
-            'color': 'danger',
-            'title': e.title,
-            'text': e.description,
-        }]
+        message_poster.post_error('Configuration Error', str(e))
+    except NoResultsError as e:
+        message_poster.post_error('No Results', str(e))
 
-    # respond with results
-    message_poster.post_message(CommandClass.__name__, results)
 
 
 def _parse_slack_input(query_string):

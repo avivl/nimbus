@@ -31,7 +31,24 @@ class MessagePoster(object):
         self.icon = config.get('icon', '')  # Bot icon URL
         self.botname = config.get('BotName', 'Nimbus')
 
-    def post_message(self, msg, attachments):
+    def post_error(self, title, description):
+        self._post([{
+            'color': 'danger',
+            'title': title,
+            'text': description,
+        }])
+
+    def post_results(self, msg, results):
+        attachments = [{'color': 'good',
+                        'fields': [{'title': field,
+                                    'value': value,
+                                    'short': True}
+                                   for field, value in
+                                   record.items()]}
+                       for record in results]
+        return self._post(msg, attachments)
+
+    def _post(self, msg, attachments):
         """Send a formated message to Slack."""
         if DEBUG:
             print dict(
@@ -78,10 +95,8 @@ class ConfigError(Exception):
     pass
 
 
-class UserError(Exception):
-    def __init__(self, title, description):
-        self.title = title
-        self.description = description
+class NoResultsError(Exception):
+    pass
 
 
 class AbstractCommand(object):
@@ -117,29 +132,17 @@ class Route53(AbstractCommand):
             record_sets = client.list_resource_record_sets(
                 HostedZoneId=hosted_zone['Id'])['ResourceRecordSets']
             for record_set in record_sets:
-                if record_set.get('Name').rstrip('.') == search:
-                    if record_set['Type'] == 'CNAME' or record_set[
-                            'Type'] == 'A':
-                        if 'ResourceRecords' not in record_set:
-                            print('ResourceRecords not found in %s'
-                                  % record_set)
-                            continue
-                        for value in [x['Value']
-                                      for x
-                                      in record_set['ResourceRecords']]:
-                            results.append({
-                                'Type': record_set['Type'],
-                                'TTL': record_set['TTL'],
-                                'Value': value
-                                })
-        attachments = [{'title': search,
-                        'color': 'good',
-                        'fields': [{'title': field,
-                                    'value': value,
-                                    'short': True}
-                                   for field, value in record.items()]}
-                       for record in results]
-        return attachments
+                if (record_set['Name'].rstrip('.') == search
+                        and record_set['Type'] in ['CNAME', 'A']
+                        and 'ResourceRecords' in record_set):
+
+                    results += [{
+                        'Type': record_set['Type'],
+                        'TTL': record_set['TTL'],
+                        'Value': rr['Value']
+                        } for rr in record_set['ResourceRecords']]
+
+        return results
 
 
 class EC2(AbstractCommand):
@@ -150,14 +153,14 @@ class EC2(AbstractCommand):
         """Entry point for the search. Iterate over instances records."""
         ec2c = boto3.client('ec2')
         regions = ec2c.describe_regions()['Regions']
+
+        instance_filters = [{'Name': 'instance-state-name', 'Values': ['running']},
+                            {'Name': 'tag:Name', 'Values': [search]}]
+
         results = []
-        attachments = []
         for region in regions:
             ec2 = boto3.resource('ec2', region_name=region['RegionName'])
-            instances = ec2.instances.filter(
-                Filters=[{'Name': 'instance-state-name',
-                          'Values': ['running']},
-                         {'Name': 'tag:Name', 'Values': [search]}])
+            instances = ec2.instances.filter(Filters=instance_filters)
             for instance in instances:
                 for tag in instance.tags:
                     if tag['Key'] == 'Name':
@@ -167,13 +170,7 @@ class EC2(AbstractCommand):
                             'VPC': instance.vpc_id,
                             'Region': region['RegionName']
                             })
-                    attachments = [{'color': 'good',
-                                    'fields': [{'title': field, 'value': value,
-                                                'short': True}
-                                               for field, value in
-                                               record.items()]}
-                                   for record in results]
-        return attachments
+        return results
 
 
 class Droplets(AbstractCommand):
@@ -187,22 +184,16 @@ class Droplets(AbstractCommand):
         """Entry point for the search. Iterate over instances records."""
         manager = digitalocean.Manager(token=self.digitalocean_token)
         my_droplets = manager.get_all_droplets()
+
         results = []
-        attachments = []
         for droplet in my_droplets:
-            m = re.search(search, droplet.name)
-            if m:
+            if re.search(search, droplet.name):
                 results.append({
                     'Name': droplet.name,
                     'Region': droplet.region['name']
                     })
-                attachments = [{'color': 'good',
-                                'fields': [{'title': field, 'value': value,
-                                            'short': True}
-                                           for field, value in
-                                           record.items()]}
-                               for record in results]
-        return attachments
+
+        return results
 
 
 class SL(AbstractCommand):
@@ -221,24 +212,18 @@ class SL(AbstractCommand):
 
         mgr = SoftLayer.VSManager(client)
         vsi = mgr.list_instances()
+
         results = []
-        attachments = []
         for vs in vsi:
-            m = re.search(search, vs['hostname'])
-            if m:
+            if re.search(search, vs['hostname']):
                 results.append({
                     'Name': vs['hostname'],
                     'Data Center': vs['datacenter']['longName']
                 })
-                attachments = [{'color': 'good',
-                                'fields': [{'title': field, 'value': value,
-                                            'short': True}
-                                           for field, value in
-                                           record.items()]}
-                               for record in results]
-        return attachments
+
+        return results
 
 
 class Help(AbstractCommand):
     def run(self):
-        self.post_message('Help', [])
+        return []
