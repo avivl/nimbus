@@ -1,14 +1,5 @@
 """Main file for Nimbus."""
-import commands
-from commands import Config, NoResultsError, ConfigError, MessagePoster, is_valid_slack_secret
-
-# Enter the base-64 encoded, encrypted Slack command secret (CiphertextBlob)
-
-COMMANDS = {'help': commands.Help,
-            'route53': commands.Route53,
-            'ec2': commands.EC2,
-            'droplets': commands.Droplets,
-            'sl': commands.SL}
+from handler import run_command
 
 
 def handle(event, context):
@@ -26,39 +17,7 @@ def handle(event, context):
     _, text = _pop_token(text)  # bot name
     command_name, text = _pop_token(text)
 
-    CommandClass = COMMANDS.get(command_name, COMMANDS['help'])
-
-    return run_command(CommandClass, secret_token, channel_name, user_name, text)
-
-
-def run_command(CommandClass, secret_token, channel_name, user_name, text):
-    # init config
-    config = Config()
-
-    # check slack secret
-    if not is_valid_slack_secret(config, secret_token):
-        print 'slack secret does not match'
-        return
-
-    # init message poster for responding
-    try:
-        message_poster = MessagePoster(config, channel_name, user_name)
-    except ConfigError as e:
-        print 'error initializing', e
-        return
-
-    # init and run command
-    try:
-        command = CommandClass(config)
-        results = command.run(text)
-        if not results:
-            raise NoResultsError(text)
-        message_poster.post_results(CommandClass.__name__, results)
-    except ConfigError as e:
-        message_poster.post_error('Configuration Error', str(e))
-    except NoResultsError as e:
-        message_poster.post_error('No Results', str(e))
-
+    return run_command(command_name, secret_token, channel_name, user_name, text)
 
 
 def _parse_slack_input(query_string):
