@@ -1,11 +1,17 @@
 """Commands classes."""
 from base64 import b64decode
-import boto3
-import digitalocean
-from slacker import Slacker
-import SoftLayer
+import os
 import re
 import urllib2
+
+from slacker import Slacker
+import SoftLayer
+import boto3
+import digitalocean
+
+
+# don't authenticate + print to screen
+DEBUG = os.getenv('NIMBUS_DEBUG', 'true').lower() == 'true'
 
 
 class AbstractCommand(object):
@@ -22,7 +28,7 @@ class AbstractCommand(object):
             encrypted_expected_token = config['SlackExpected']['S']
             expected_token = kms.decrypt(CiphertextBlob=b64decode(
                 encrypted_expected_token))['Plaintext']
-            if args['token'] != expected_token:
+            if not DEBUG and args['token'] != expected_token:
                 print "No matching token found!"
                 return
         else:
@@ -85,6 +91,15 @@ class AbstractCommand(object):
 
     def post_message(self, msg, attachments):
         """Send a formated message to Slack."""
+        if DEBUG:
+            print dict(
+                channel_name='#' + self.channel_name,
+                msg=msg,
+                username=self.botname,
+                as_user=False,
+                attachments=attachments,
+                icon_url=self.icon)
+            return
         self.slack.chat.post_message(
             '#' + self.channel_name,
             msg,
