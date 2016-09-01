@@ -1,40 +1,32 @@
-"""Main file for Numbus."""
-import commands
-
-# Enter the base-64 encoded, encrypted Slack command token (CiphertextBlob)
-
-COMMANDS = {'help': 'commands.Help',
-            'route53': 'commands.Route53',
-            'ec2': 'commands.EC2',
-            'droplets': 'commands.Droplets',
-            'sl': 'commands.SL'}
+"""Main file for Nimbus."""
+from handler import run_command
 
 
 def handle(event, context):
-    """Entry point for lambda."""
-    param_map = _formparams_to_dict(event['formparams'])
-    if len(param_map['text'].split('+')) < 3:
-        # call help
-        return event
-    return handle_command(param_map['text'].split('+')[1],
-                          param_map)
+    """Entry point for lambda.
 
-""" Get the command and execute it """
+    parse slack command and run one of the commands available.
+    """
+    secret_token, channel_name, user_name, text = _parse_slack_input(event['formparams'])
+    # text should be:
+    # "nimbus <command> <args>"
+    if len(text.split()) < 3:
+        return run_command('help', secret_token, channel_name, user_name, '')
 
-
-def handle_command(commnad_name, text):
-    """Call the relevant command."""
-    command = COMMANDS.get(commnad_name, COMMANDS['help'])
-    command = command + "(" + "text" + ")"
-    my_cls = eval(command)
-    method = getattr(my_cls, "run")
-    return method()
+    _, text = _pop_token(text)  # bot name
+    command_name, text = _pop_token(text)
+    return run_command(command_name, secret_token, channel_name, user_name, text)
 
 
-def _formparams_to_dict(s1):
-    # Converts the incoming formparams from Slack into a dictionary
-    retval = {}
-    for val in s1.split('&'):
-        k, v = val.split('=')
-        retval[k] = v
-    return retval
+def _parse_slack_input(query_string):
+    """return the slack parameters from a query string."""
+    import urlparse
+    params = dict(urlparse.parse_qsl(query_string))
+    text = params['text']
+    text = ' '.join(text.split())  # remove duplicate spaces
+    return params['token'], params['channel_name'], params['user_name'], text
+
+
+def _pop_token(text):
+    """return a tuple of the first token and the rest of the string."""
+    return text.split(' ', 1)

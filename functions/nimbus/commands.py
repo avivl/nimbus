@@ -1,165 +1,95 @@
 """Commands classes."""
-from base64 import b64decode
+import re
+
+import SoftLayer
 import boto3
 import digitalocean
-from slacker import Slacker
-import SoftLayer
-import re
-import urllib2
 
 
 class AbstractCommand(object):
     """Base class for commands."""
 
-    def __init__(self, args):
-        """Get configuration data from DynamoDB."""
-        client = boto3.client('dynamodb')
-        config = client.scan(TableName='nimbus')['Items'][0]
-        kms = boto3.client('kms')
-        # Slack will send us a token with each request, we need to validate is
-        # in order to make sure that the code is callled from our "own" slack.
-        if 'SlackExpected' in config:
-            encrypted_expected_token = config['SlackExpected']['S']
-            expected_token = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_expected_token))['Plaintext']
-            if args['token'] != expected_token:
-                print "No matching token found!"
-                return
-        else:
-            print "Encrypted excpcted token not found in DB"
-            return
+    def __init__(self, config):
+        """derived can implement to inject configuration."""
+        pass
 
-        # Slack API token.
-        if 'SlackAPI' in config:
-            encrypted_slack_token = config['SlackAPI']['S']
-            self.slack_token = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_slack_token))['Plaintext']
-        else:
-            print "Slack API token not found"
-            return
+    @classmethod
+    def name(cls):
+        raise NotImplementedError()
 
-        # DigitalOcean API token.
-        if 'DigitalOcean' in config:
-            encrypted_digitalocean_token = config['DigitalOcean']['S']
-            self.digitalocean_token = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_digitalocean_token))['Plaintext']
-        else:
-            self.digitalocean_token = ""
-
-        # Softlayern username.
-        if 'SLUserName' in config:
-            encrypted_softalyer_username = config['SLUserName']['S']
-            self.softalyer_username = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_softalyer_username))['Plaintext']
-        else:
-            self.softalyer_username = ""
-
-        # Softlayern API key.
-        if 'SLAPI' in config:
-            encrypted_softalyer_api_key = config['SLAPI']['S']
-            self.softalyer_api_key = kms.decrypt(CiphertextBlob=b64decode(
-                encrypted_softalyer_api_key))['Plaintext']
-        else:
-            self.softalyer_api_key = ""
-
-        # Bot icon URL
-        if 'icon' in config:
-            self.icon = config['icon']['S']
-        else:
-            self.icon = ""
-
-        # Name of the bot as displayed by Slack
-        if 'BotName' in config:
-            self.botname = config['BotName']['S']
-        else:
-            self.botname = 'Nimbus'
-
-        self.channel_name = args['channel_name'].split('+')[0]
-        self.user_name = args['user_name'].split('+')[0]
-        self.args = args['text'].split('+')[2]
-        self.slack = Slacker(self.slack_token)
-
-    def run(self):
+    def run(self, search):
         """Base function for commands excecution."""
-        return
-
-    def post_message(self, msg, attachments):
-        """Send a formated message to Slack."""
-        self.slack.chat.post_message(
-            '#' + self.channel_name,
-            msg,
-            username=self.botname,
-            as_user=False,
-            attachments=attachments,
-            icon_url=self.icon)
+        raise NotImplementedError()
 
 
-class Route53(AbstractCommand):
+class Route53Search(AbstractCommand):
 
-    """Serach for dns records at Route53."""
+    """Search for dns records on Route53.
 
-    def run(self):
+    >>> route53 <fqdn>
+    """
+
+    @classmethod
+    def name(cls):
+        return 'AWS Route53 Search'
+
+    def run(self, search):
         """Entry point fo rthe serach. Iterate over dns records."""
         client = boto3.client('route53')
         hosted_zones = client.list_hosted_zones()['HostedZones']
-        dns = urllib2.unquote(self.args)
-        if dns.find('|') >= 0:
+        if search.find('|') >= 0:
             # Slack will send in the following format http://xxx.yyy.zz
             #  |xxx.yyy.zz>"""
-            dns = (urllib2.unquote(self.args)).split('|')[1].rstrip('>')
+            search = search.split('|')[1].rstrip('>')
         results = []
         for hosted_zone in hosted_zones:
             record_sets = client.list_resource_record_sets(
                 HostedZoneId=hosted_zone['Id'])['ResourceRecordSets']
             for record_set in record_sets:
-                if record_set.get('Name').rstrip('.') == dns:
-                    if record_set['Type'] == 'CNAME' or record_set[
-                            'Type'] == 'A':
-                        if 'ResourceRecords' not in record_set:
-                            print('ResourceRecords not found in %s'
-                                  % record_set)
-                            continue
-                        for value in [x['Value']
-                                      for x
-                                      in record_set['ResourceRecords']]:
-                            results.append({
-                                'Type': record_set['Type'],
-                                'TTL': record_set['TTL'],
-                                'Value': value
-                                })
-        attachments = [{'title': dns,
-                        'color': 'good',
-                        'fields': [{'title': field,
-                                    'value': value,
-                                    'short': True}
-                                   for field, value in record.items()]}
-                       for record in results]
-        if len(results) == 0:
-            attachments = [{
-                'color': 'danger',
-                'title': 'Not found',
-                'text': dns
-            }]
-        self.post_message('Route53 Search', attachments)
+                if (record_set['Name'].rstrip('.') == search
+                        and record_set['Type'] in ['CNAME', 'A']
+                        and 'ResourceRecords' in record_set):
+
+                    results += [{
+                        'Type': record_set['Type'],
+                        'TTL': record_set['TTL'],
+                        'Value': rr['Value']
+                        } for rr in record_set['ResourceRecords']]
+
+        return results
 
 
-class EC2(AbstractCommand):
+class EC2Search(AbstractCommand):
 
-    """Search for ec2 instances at AWS."""
+    """Search for EC2 instances on AWS.
 
-    def run(self):
+    >>> ec2 <search>
+    """
+
+    @classmethod
+    def name(cls):
+        return 'AWS EC2 Search'
+
+    def run(self, search):
         """Entry point for the search. Iterate over instances records."""
+        from multiprocessing.pool import ThreadPool
         ec2c = boto3.client('ec2')
-        search = urllib2.unquote(self.args)
         regions = ec2c.describe_regions()['Regions']
-        results = []
-        attachments = []
-        for region in regions:
+
+        instance_filters = [{'Name': 'instance-state-name', 'Values': ['running']},
+                            {'Name': 'tag:Name', 'Values': [search]}]
+
+        def get_instances(region):
             ec2 = boto3.resource('ec2', region_name=region['RegionName'])
-            instances = ec2.instances.filter(
-                Filters=[{'Name': 'instance-state-name',
-                          'Values': ['running']},
-                         {'Name': 'tag:Name', 'Values': [search]}])
+            return ec2.instances.filter(Filters=instance_filters)
+
+        pool = ThreadPool(processes=15)
+        async_results = [pool.apply_async(get_instances, (region, ))
+                         for region in regions]
+
+        results = []
+        for region, async_result in zip(regions, async_results):
+            instances = async_result.get()
             for instance in instances:
                 for tag in instance.tags:
                     if tag['Key'] == 'Name':
@@ -169,106 +99,83 @@ class EC2(AbstractCommand):
                             'VPC': instance.vpc_id,
                             'Region': region['RegionName']
                             })
-                    attachments = [{'color': 'good',
-                                    'fields': [{'title': field, 'value': value,
-                                                'short': True}
-                                               for field, value in
-                                               record.items()]}
-                                   for record in results]
-        if attachments == []:
-            attachments = [{
-                'color': 'danger',
-                'title': 'Not found',
-                'text': search
-            }]
-        self.post_message('EC2 Search for ' + search, attachments)
+        return results
 
 
-class Droplets(AbstractCommand):
+class DODropletsSearch(AbstractCommand):
 
-    """Search for droplet at DigitalOcean."""
+    """Search for droplet on DigitalOcean.
 
-    def run(self):
+    >>> droplets <search>
+    """
+
+    @classmethod
+    def name(cls):
+        return 'DO Droplets Search'
+
+    def __init__(self, config):
+        super(DODropletsSearch, self).__init__(config)
+        self.digitalocean_token = config.decrypt('DigitalOcean')
+
+    def run(self, search):
         """Entry point for the search. Iterate over instances records."""
-        if len(self.digitalocean_token) == 0:
-            attachments = [{
-                'color': 'danger',
-                'title': 'DO Token not found',
-            }]
-            self.post_message('Droplets Search', attachments)
-            return
-        search = urllib2.unquote(self.args)
         manager = digitalocean.Manager(token=self.digitalocean_token)
         my_droplets = manager.get_all_droplets()
+
         results = []
-        attachments = []
         for droplet in my_droplets:
-            m = re.search(search, droplet.name)
-            if m:
+            if re.search(search, droplet.name):
                 results.append({
                     'Name': droplet.name,
                     'Region': droplet.region['name']
                     })
-                attachments = [{'color': 'good',
-                                'fields': [{'title': field, 'value': value,
-                                            'short': True}
-                                           for field, value in
-                                           record.items()]}
-                               for record in results]
-        if attachments == []:
-            attachments = [{
-                'color': 'danger',
-                'title': 'Not found',
-                'text': search
-            }]
-        self.post_message('Droplets Search', attachments)
+
+        return results
 
 
-class SL(AbstractCommand):
+class SoftLayerSearch(AbstractCommand):
 
-    """Search for VM's at Softlayer."""
+    """Search for VM's on Softlayer.
 
-    def run(self):
+    >>> sl <search>
+    """
+
+    @classmethod
+    def name(cls):
+        return 'SoftLayer Search'
+
+    def __init__(self, config):
+        super(SoftLayerSearch, self).__init__(config)
+        self.softalyer_username = config.decrypt('SLUserName')
+        self.softalyer_api_key = config.decrypt('SLAPI')
+
+    def run(self, search):
         """Entry point for the search. Iterate over VM's records."""
-        if len(self.softalyer_username) == 0:
-            attachments = [{
-                'color': 'danger',
-                'title': 'SL Username not found',
-            }]
-            self.post_message('SL Search', attachments)
-            return
-        if len(self.softalyer_api_key) == 0:
-            attachments = [{
-                'color': 'danger',
-                'title': 'SL API Key not found',
-            }]
-            self.post_message('SL Search', attachments)
-            return
-        search = urllib2.unquote(self.args)
         client = SoftLayer.create_client_from_env(
             username=self.softalyer_username,
             api_key=self.softalyer_api_key)
+
         mgr = SoftLayer.VSManager(client)
         vsi = mgr.list_instances()
+
         results = []
-        attachments = []
         for vs in vsi:
-            m = re.search(search, vs['hostname'])
-            if m:
+            if re.search(search, vs['hostname']):
                 results.append({
                     'Name': vs['hostname'],
                     'Data Center': vs['datacenter']['longName']
                 })
-                attachments = [{'color': 'good',
-                                'fields': [{'title': field, 'value': value,
-                                            'short': True}
-                                           for field, value in
-                                           record.items()]}
-                               for record in results]
-        if attachments == []:
-            attachments = [{
-                'color': 'danger',
-                'title': 'Not found',
-                'text': search
-            }]
-        self.post_message('SL Search', attachments)
+
+        return results
+
+
+class Help(AbstractCommand):
+    """Help on all commands."""
+
+    @classmethod
+    def name(cls):
+        return 'help'
+
+    def run(self, args):
+        return [{'Name': cls.__name__, 'Help': cls.__doc__}
+                for cls in [EC2Search, SoftLayerSearch, Route53Search, DODropletsSearch]]
