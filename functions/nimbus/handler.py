@@ -4,10 +4,10 @@ from message_poster import MessagePoster
 
 
 COMMANDS = {'help': commands.Help,
-            'route53': commands.Route53,
-            'ec2': commands.EC2,
-            'droplets': commands.Droplets,
-            'sl': commands.SL}
+            'route53': commands.Route53Search,
+            'ec2': commands.EC2Search,
+            'droplets': commands.DODropletsSearch,
+            'sl': commands.SoftLayerSearch}
 
 
 def is_valid_slack_secret(config, secret):
@@ -40,16 +40,17 @@ def run_command(command_name, secret_token, channel_name, user_name, text):
         return
 
     # init and run command
+    command_class = COMMANDS.get(command_name, COMMANDS['help'])
+    title = '%s: %s' % (command_class.name(), text)
     try:
-        command_class = COMMANDS.get(command_name, COMMANDS['help'])
         command = command_class(config)
         results = command.run(text)
         if not results:
             raise NoResultsError(text)
-        message_poster.post_results(command_class.__name__, results)
+        message_poster.post_results(title, results)
     except ConfigError as e:
-        message_poster.post_error('Configuration Error', str(e))
+        message_poster.post_error(title, 'Configuration Error', str(e))
     except NoResultsError as e:
-        message_poster.post_error('No Results', str(e))
+        message_poster.post_error(title, 'No Results', str(e))
     except Exception as e:
-        message_poster.post_error('Unexpected Error', str(e))
+        message_poster.post_error(title, 'Unexpected Error', str(e))

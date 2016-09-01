@@ -15,7 +15,7 @@ class Config(object):
         self.kms = boto3.client('kms')
 
         # don't authenticate + print to screen
-        self.DEBUG = os.getenv('NIMBUS_DEBUG', 'true').lower() == 'true'
+        self.DEBUG = os.getenv('NIMBUS_DEBUG', 'false').lower() == 'true'
 
     def __getitem__(self, key):
         try:
@@ -30,4 +30,6 @@ class Config(object):
         return self.kms.decrypt(CiphertextBlob=b64decode(self[key]))['Plaintext']
 
     def get(self, key, default=None):
-        return self.config.get(key, default)
+        if key in self:
+            return self[key]
+        return default

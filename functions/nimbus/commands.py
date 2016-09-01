@@ -10,21 +10,28 @@ class AbstractCommand(object):
     """Base class for commands."""
 
     def __init__(self, config):
-        """Get configuration data from DynamoDB."""
-        self.init_command(config)
-
-    def run(self, search):
-        """Base function for commands excecution."""
-        pass
-
-    def init_command(self, config):
         """derived can implement to inject configuration."""
         pass
 
+    @classmethod
+    def name(cls):
+        raise NotImplementedError()
 
-class Route53(AbstractCommand):
+    def run(self, search):
+        """Base function for commands excecution."""
+        raise NotImplementedError()
 
-    """Serach for dns records at Route53."""
+
+class Route53Search(AbstractCommand):
+
+    """Search for dns records on Route53.
+
+    >>> route53 <fqdn>
+    """
+
+    @classmethod
+    def name(cls):
+        return 'AWS Route53 Search'
 
     def run(self, search):
         """Entry point fo rthe serach. Iterate over dns records."""
@@ -52,9 +59,16 @@ class Route53(AbstractCommand):
         return results
 
 
-class EC2(AbstractCommand):
+class EC2Search(AbstractCommand):
 
-    """Search for ec2 instances at AWS."""
+    """Search for EC2 instances on AWS.
+
+    >>> ec2 <search>
+    """
+
+    @classmethod
+    def name(cls):
+        return 'AWS EC2 Search'
 
     def run(self, search):
         """Entry point for the search. Iterate over instances records."""
@@ -80,11 +94,19 @@ class EC2(AbstractCommand):
         return results
 
 
-class Droplets(AbstractCommand):
+class DODropletsSearch(AbstractCommand):
 
-    """Search for droplet at DigitalOcean."""
+    """Search for droplet on DigitalOcean.
 
-    def init_command(self, config):
+    >>> droplets <search>
+    """
+
+    @classmethod
+    def name(cls):
+        return 'DO Droplets Search'
+
+    def __init__(self, config):
+        super(DODropletsSearch, self).__init__(config)
         self.digitalocean_token = config.decrypt('DigitalOcean')
 
     def run(self, search):
@@ -103,11 +125,19 @@ class Droplets(AbstractCommand):
         return results
 
 
-class SL(AbstractCommand):
+class SoftLayerSearch(AbstractCommand):
 
-    """Search for VM's at Softlayer."""
+    """Search for VM's on Softlayer.
 
-    def init_command(self, config):
+    >>> sl <search>
+    """
+
+    @classmethod
+    def name(cls):
+        return 'SoftLayer Search'
+
+    def __init__(self, config):
+        super(SoftLayerSearch, self).__init__(config)
         self.softalyer_username = config.decrypt('SLUserName')
         self.softalyer_api_key = config.decrypt('SLAPI')
 
@@ -132,5 +162,12 @@ class SL(AbstractCommand):
 
 
 class Help(AbstractCommand):
-    def run(self):
-        return []
+    """Help on all commands."""
+
+    @classmethod
+    def name(cls):
+        return 'help'
+
+    def run(self, args):
+        return [{'Name': cls.__name__, 'Help': cls.__doc__}
+                for cls in [EC2Search, SoftLayerSearch, Route53Search, DODropletsSearch]]

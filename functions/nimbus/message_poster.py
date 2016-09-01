@@ -6,6 +6,7 @@ class MessagePoster(object):
 
     def __init__(self, config, channel_name, user_name):
         self.slacker = Slacker(config.decrypt('SlackAPI'))
+
         self.channel_name = channel_name
         self.user_name = user_name
         self.icon = config.get('icon', '')  # Bot icon URL
@@ -13,8 +14,8 @@ class MessagePoster(object):
 
         self.DEBUG = config.DEBUG
 
-    def post_error(self, title, description):
-        self._post([{
+    def post_error(self, msg, title, description):
+        self._post(msg, [{
             'color': 'danger',
             'title': title,
             'text': description,

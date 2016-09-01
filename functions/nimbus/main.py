@@ -10,13 +10,11 @@ def handle(event, context):
     secret_token, channel_name, user_name, text = _parse_slack_input(event['formparams'])
     # text should be:
     # "nimbus <command> <args>"
-    if text.split() < 3:
-        # call help
-        return event
+    if len(text.split()) < 3:
+        return run_command('help', secret_token, channel_name, user_name, '')
 
     _, text = _pop_token(text)  # bot name
     command_name, text = _pop_token(text)
-
     return run_command(command_name, secret_token, channel_name, user_name, text)
 
 
