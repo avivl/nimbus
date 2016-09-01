@@ -72,16 +72,24 @@ class EC2Search(AbstractCommand):
 
     def run(self, search):
         """Entry point for the search. Iterate over instances records."""
+        from multiprocessing.pool import ThreadPool
         ec2c = boto3.client('ec2')
         regions = ec2c.describe_regions()['Regions']
 
         instance_filters = [{'Name': 'instance-state-name', 'Values': ['running']},
                             {'Name': 'tag:Name', 'Values': [search]}]
 
-        results = []
-        for region in regions:
+        def get_instances(region):
             ec2 = boto3.resource('ec2', region_name=region['RegionName'])
-            instances = ec2.instances.filter(Filters=instance_filters)
+            return ec2.instances.filter(Filters=instance_filters)
+
+        pool = ThreadPool(processes=15)
+        async_results = [pool.apply_async(get_instances, (region, ))
+                         for region in regions]
+
+        results = []
+        for region, async_result in zip(regions, async_results):
+            instances = async_result.get()
             for instance in instances:
                 for tag in instance.tags:
                     if tag['Key'] == 'Name':

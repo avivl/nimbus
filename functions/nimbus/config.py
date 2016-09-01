@@ -10,8 +10,8 @@ class ConfigError(Exception):
 
 class Config(object):
     def __init__(self):
-        client = boto3.client('dynamodb')
-        self.config = client.scan(TableName='nimbus')['Items'][0]
+        dynamodb = boto3.client('dynamodb')
+        self.config = dynamodb.scan(TableName='nimbus')['Items'][0]
         self.kms = boto3.client('kms')
 
         # don't authenticate + print to screen
