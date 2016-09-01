@@ -41,16 +41,18 @@ def run_command(command_name, secret_token, channel_name, user_name, text):
 
     # init and run command
     command_class = COMMANDS.get(command_name, COMMANDS['help'])
-    title = '%s: %s' % (command_class.name(), text)
+    message_poster.post_title('%s: %s' % (command_class.name(), text))
     try:
         command = command_class(config)
-        results = command.run(text)
-        if not results:
+        has_results = False
+        for res in command.run(text):
+            message_poster.post_results([res])
+            has_results = True
+        if not has_results:
             raise NoResultsError(text)
-        message_poster.post_results(title, results)
     except ConfigError as e:
-        message_poster.post_error(title, 'Configuration Error', str(e))
+        message_poster.post_error('Configuration Error', str(e))
     except NoResultsError as e:
-        message_poster.post_error(title, 'No Results', str(e))
+        message_poster.post_error('No Results', str(e))
     except Exception as e:
-        message_poster.post_error(title, 'Unexpected Error', str(e))
+        message_poster.post_error('Unexpected Error', str(e))

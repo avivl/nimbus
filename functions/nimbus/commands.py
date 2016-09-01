@@ -1,5 +1,7 @@
 """Commands classes."""
 import re
+from Queue import Queue
+from threading import Thread
 
 import SoftLayer
 import boto3
@@ -41,7 +43,6 @@ class Route53Search(AbstractCommand):
             # Slack will send in the following format http://xxx.yyy.zz
             #  |xxx.yyy.zz>"""
             search = search.split('|')[1].rstrip('>')
-        results = []
         for hosted_zone in hosted_zones:
             record_sets = client.list_resource_record_sets(
                 HostedZoneId=hosted_zone['Id'])['ResourceRecordSets']
@@ -50,13 +51,12 @@ class Route53Search(AbstractCommand):
                         and record_set['Type'] in ['CNAME', 'A']
                         and 'ResourceRecords' in record_set):
 
-                    results += [{
-                        'Type': record_set['Type'],
-                        'TTL': record_set['TTL'],
-                        'Value': rr['Value']
-                        } for rr in record_set['ResourceRecords']]
-
-        return results
+                    for rr in record_set['ResourceRecords']:
+                        yield {
+                            'Type': record_set['Type'],
+                            'TTL': record_set['TTL'],
+                            'Value': rr['Value']
+                        }
 
 
 class EC2Search(AbstractCommand):
@@ -72,34 +72,30 @@ class EC2Search(AbstractCommand):
 
     def run(self, search):
         """Entry point for the search. Iterate over instances records."""
-        from multiprocessing.pool import ThreadPool
         ec2c = boto3.client('ec2')
         regions = ec2c.describe_regions()['Regions']
 
         instance_filters = [{'Name': 'instance-state-name', 'Values': ['running']},
                             {'Name': 'tag:Name', 'Values': [search]}]
 
-        def get_instances(region):
+        def get_instances(region, q):
             ec2 = boto3.resource('ec2', region_name=region['RegionName'])
-            return ec2.instances.filter(Filters=instance_filters)
+            q.put((region, ec2.instances.filter(Filters=instance_filters)))
 
-        pool = ThreadPool(processes=15)
-        async_results = [pool.apply_async(get_instances, (region, ))
-                         for region in regions]
+        q = Queue()
+        [Thread(target=get_instances, args=(region, q)).start() for region in regions]
 
-        results = []
-        for region, async_result in zip(regions, async_results):
-            instances = async_result.get()
+        for _ in range(len(regions)):
+            region, instances = q.get()
             for instance in instances:
                 for tag in instance.tags:
                     if tag['Key'] == 'Name':
-                        results.append({
+                        yield {
                             'Name': tag['Value'],
                             'Type': instance.instance_type,
                             'VPC': instance.vpc_id,
                             'Region': region['RegionName']
-                            })
-        return results
+                        }
 
 
 class DODropletsSearch(AbstractCommand):
@@ -122,15 +118,12 @@ class DODropletsSearch(AbstractCommand):
         manager = digitalocean.Manager(token=self.digitalocean_token)
         my_droplets = manager.get_all_droplets()
 
-        results = []
         for droplet in my_droplets:
             if re.search(search, droplet.name):
-                results.append({
+                yield {
                     'Name': droplet.name,
                     'Region': droplet.region['name']
-                    })
-
-        return results
+                }
 
 
 class SoftLayerSearch(AbstractCommand):
@@ -158,15 +151,12 @@ class SoftLayerSearch(AbstractCommand):
         mgr = SoftLayer.VSManager(client)
         vsi = mgr.list_instances()
 
-        results = []
         for vs in vsi:
             if re.search(search, vs['hostname']):
-                results.append({
+                yield {
                     'Name': vs['hostname'],
                     'Data Center': vs['datacenter']['longName']
-                })
-
-        return results
+                }
 
 
 class Help(AbstractCommand):
@@ -177,5 +167,5 @@ class Help(AbstractCommand):
         return 'help'
 
     def run(self, args):
-        return [{'Name': cls.__name__, 'Help': cls.__doc__}
-                for cls in [EC2Search, SoftLayerSearch, Route53Search, DODropletsSearch]]
+        for kls in [EC2Search, SoftLayerSearch, Route53Search, DODropletsSearch]:
+            yield {'Name': kls.__name__, 'Help': kls.__doc__}
