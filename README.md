@@ -57,10 +57,14 @@
 ### Configuration data
 1. Go to [Identity and Access Management](https://console.aws.amazon.com/iam/home?region=us-east-1#encryptionKeys/us-east-1)
 1. Create the following mandatory keys - SlackAPIKey (Slack AP Token),  nimbus (Slack verification token)
-1. Create optional keys - DigitalOcean (DigitalOcean API key)
+1. Create optional keys - DigitalOcean (DigitalOcean API key), SoftLayer (user name and a token), Google
 1. For each of the created keys do the following
-    1. `$ aws kms encrypt --key-id alias/<KMS key name> --plaintext "<COMMAND_TOKEN>"`
+    1. `aws kms encrypt --key-id alias/<KMS key name> --plaintext "<COMMAND_TOKEN>"`
 1. Copy the base-64 encoded, encrypted key
+1. if you you want to list your GCE instance, create keys as describe [here](https://developers.google.com/identity/protocols/application-default-credentials)
+1. For each of the keys decrypt using
+    1. `aws kms encrypt --key-id alias/NimbusGoogle --plaintext fileb://"key file"" --output text "`
+1. Store tis values in a string set by the name of GCETokens in dynamodb.
 1. Go to [DynamoDB](https://console.aws.amazon.com/dynamodb/home?region=us-east-1) and create a table by the name of nimbus
 1. Add the following items to the table:
  1. BotName - Default "Nimbus"
@@ -87,7 +91,6 @@
          }
        ]
      }```
-
 
 ### Ready, Set, Go!
 

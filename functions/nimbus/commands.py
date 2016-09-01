@@ -74,17 +74,23 @@ class EC2Search(AbstractCommand):
         ec2c = boto3.client('ec2')
         regions = ec2c.describe_regions()['Regions']
 
-        instance_filters = [{'Name': 'instance-state-name', 'Values': ['running']},
-                            {'Name': 'tag:Name', 'Values': [search]}]
+        instance_filters = [{'Name': 'instance-state-name',
+                             'Values': ['running']},
+                            {'Name': 'tag:Name',
+                             'Values': [search]}]
 
         def get_instances(region_name, q):
             ec2 = boto3.resource('ec2', region_name=region_name)
-            q.put((region_name, ec2.instances.filter(Filters=instance_filters)))
+            q.put((region_name, ec2.instances.filter
+                   (Filters=instance_filters)))
 
         q = Queue()
-        threads = [Thread(target=get_instances, args=(region['RegionName'], q)).start()
-                   for region in regions]
-
+        threads = [
+            Thread(
+                target=get_instances,
+                args=(
+                    region['RegionName'],
+                    q)).start() for region in regions]
         for _ in range(len(threads)):
             region_name, instances = q.get()
             for instance in instances:
@@ -137,6 +143,7 @@ class SoftLayerSearch(AbstractCommand):
 
     @classmethod
     def name(cls):
+
         return 'SoftLayer Search'
 
     def __init__(self, config):
@@ -163,6 +170,68 @@ class SoftLayerSearch(AbstractCommand):
                 }
 
 
+class GCESearch(AbstractCommand):
+
+    """Search for VM's on GCE.
+
+    >>> gce <search>
+    """
+
+    @classmethod
+    def name(cls):
+        return 'GCE Search'
+
+    def __init__(self, config):
+        super(GCESearch, self).__init__(config)
+        import boto3
+        import json
+        import os
+        import tempfile
+        s3 = boto3.client("s3")
+        kms = boto3.client('kms')
+        self.tmp_dir = tempfile.mkdtemp()
+        for key in config['GCETokens']:
+            jsondata = config.decryptvalue(key)
+            filename = json.loads(jsondata)["project_id"]
+            with open(self.tmp_dir + "/" + filename + ".json", 'w') as jfile:
+                jfile.write(jsondata)
+
+    def run(self, search):
+        """Entry point for the search. Iterate over VM's records."""
+        from oauth2client.service_account import ServiceAccountCredentials
+        from googleapiclient import discovery
+        import glob
+        import json
+        import shutil
+        scopes = ['https://www.googleapis.com/auth/compute.readonly']
+        for filename in glob.glob(self.tmp_dir + '/*.json'):
+            with open(filename) as data_file:
+                data = json.load(data_file)
+            project_id = data["project_id"]
+            credentials = ServiceAccountCredentials.from_json_keyfile_name(
+                filename, scopes=scopes)
+            compute = discovery.build('compute', 'v1', credentials=credentials)
+            zones = compute.zones()
+            request = zones.list(project=project_id)
+            filter = 'name eq {}.*'.format(search)
+            while request is not None:
+                response = request.execute()
+                for zone in response['items']:
+                    instances = compute.instances().list(
+                        project=project_id, zone=zone['name'],
+                        filter=filter).execute()
+                    for instance in instances.get('items', []):
+                        yield {
+                            'Name': instance['name'],
+                            'Zone': zone['name'],
+                            'Project': project_id,
+                            'Type': instance['machineType'].rsplit('/', 1)[-1]
+                        }
+                request = zones.list_next(previous_request=request,
+                                          previous_response=response)
+        shutil.rmtree(self.tmp_dir)
+
+
 class Help(AbstractCommand):
     """Help on all commands."""
 
@@ -171,5 +240,10 @@ class Help(AbstractCommand):
         return 'help'
 
     def run(self, args):
-        for kls in [EC2Search, SoftLayerSearch, Route53Search, DODropletsSearch]:
+        for kls in [
+                EC2Search,
+                SoftLayerSearch,
+                Route53Search,
+                DODropletsSearch,
+                GCESearch]:
             yield {'Name': kls.__name__, 'Help': kls.__doc__}

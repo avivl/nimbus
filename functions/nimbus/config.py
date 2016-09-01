@@ -19,7 +19,7 @@ class Config(object):
 
     def __getitem__(self, key):
         try:
-            return self.config[key]['S']
+            return self.config[key].values()[0]
         except KeyError:
             raise ConfigError('missing configuration key %s' % key)
 
@@ -27,7 +27,10 @@ class Config(object):
         return key in self.config
 
     def decrypt(self, key):
-        return self.kms.decrypt(CiphertextBlob=b64decode(self[key]))['Plaintext']
+        return self.decryptvalue(self[key])
+
+    def decryptvalue(self, value):
+        return self.kms.decrypt(CiphertextBlob=b64decode(value))['Plaintext']
 
     def get(self, key, default=None):
         if key in self:

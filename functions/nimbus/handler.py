@@ -7,7 +7,8 @@ COMMANDS = {'help': commands.Help,
             'route53': commands.Route53Search,
             'ec2': commands.EC2Search,
             'droplets': commands.DODropletsSearch,
-            'sl': commands.SoftLayerSearch}
+            'sl': commands.SoftLayerSearch,
+            'gce': commands.GCESearch}
 
 
 def is_valid_slack_secret(config, secret):
