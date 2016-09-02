@@ -14,14 +14,17 @@ class MessagePoster(object):
 
         self.DEBUG = config.DEBUG
 
-    def post_error(self, msg, title, description):
-        self._post(msg, [{
+    def post_error(self, title, description):
+        self._post('', [{
             'color': 'danger',
             'title': title,
             'text': description,
         }])
 
-    def post_results(self, msg, results):
+    def post_title(self, title):
+        self._post(title, [])
+
+    def post_results(self, results):
         attachments = [{'color': 'good',
                         'fields': [{'title': field,
                                     'value': value,
@@ -29,7 +32,7 @@ class MessagePoster(object):
                                    for field, value in
                                    record.items()]}
                        for record in results]
-        return self._post(msg, attachments)
+        return self._post('', attachments)
 
     def _post(self, msg, attachments):
         """Send a formated message to Slack."""
