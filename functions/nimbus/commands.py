@@ -1,11 +1,5 @@
 """Commands classes."""
 import re
-from Queue import Queue
-from threading import Thread
-
-import SoftLayer
-import boto3
-import digitalocean
 
 
 class AbstractCommand(object):
@@ -37,6 +31,7 @@ class Route53Search(AbstractCommand):
 
     def run(self, search):
         """Entry point fo rthe serach. Iterate over dns records."""
+        import boto3
         client = boto3.client('route53')
         hosted_zones = client.list_hosted_zones()['HostedZones']
         if search.find('|') >= 0:
@@ -72,21 +67,26 @@ class EC2Search(AbstractCommand):
 
     def run(self, search):
         """Entry point for the search. Iterate over instances records."""
+        import boto3
+        from Queue import Queue
+        from threading import Thread
+
         ec2c = boto3.client('ec2')
         regions = ec2c.describe_regions()['Regions']
 
         instance_filters = [{'Name': 'instance-state-name', 'Values': ['running']},
                             {'Name': 'tag:Name', 'Values': [search]}]
 
-        def get_instances(region, q):
-            ec2 = boto3.resource('ec2', region_name=region['RegionName'])
-            q.put((region, ec2.instances.filter(Filters=instance_filters)))
+        def get_instances(region_name, q):
+            ec2 = boto3.resource('ec2', region_name=region_name)
+            q.put((region_name, ec2.instances.filter(Filters=instance_filters)))
 
         q = Queue()
-        [Thread(target=get_instances, args=(region, q)).start() for region in regions]
+        threads = [Thread(target=get_instances, args=(region['RegionName'], q)).start()
+                   for region in regions]
 
-        for _ in range(len(regions)):
-            region, instances = q.get()
+        for _ in range(len(threads)):
+            region_name, instances = q.get()
             for instance in instances:
                 for tag in instance.tags:
                     if tag['Key'] == 'Name':
@@ -94,7 +94,7 @@ class EC2Search(AbstractCommand):
                             'Name': tag['Value'],
                             'Type': instance.instance_type,
                             'VPC': instance.vpc_id,
-                            'Region': region['RegionName']
+                            'Region': region_name
                         }
 
 
@@ -115,6 +115,8 @@ class DODropletsSearch(AbstractCommand):
 
     def run(self, search):
         """Entry point for the search. Iterate over instances records."""
+        import digitalocean
+
         manager = digitalocean.Manager(token=self.digitalocean_token)
         my_droplets = manager.get_all_droplets()
 
@@ -144,6 +146,8 @@ class SoftLayerSearch(AbstractCommand):
 
     def run(self, search):
         """Entry point for the search. Iterate over VM's records."""
+        import SoftLayer
+
         client = SoftLayer.create_client_from_env(
             username=self.softalyer_username,
             api_key=self.softalyer_api_key)

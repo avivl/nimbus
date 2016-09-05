@@ -1,3 +1,4 @@
+boto3==1.4.0
 python-digitalocean==1.9.0
 slacker==0.9.24
-SoftLayer==5.2.0
+softlayer==5.2.0
