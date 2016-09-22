@@ -46,7 +46,7 @@ Following is a detailed installation guide for Ninmus. We're using Apex to simpl
 1. This GitHub Gist will covert the your API Gateway data from application/x-www-form-urlencoded to application/json.
 1. Click on "Deploy API" button on the top left.
 1. Under "Deployment Stage", click "New Stage".
-1. Under "Stage Name", I will type in "prod".
+1. Under "Stage Name", type in "prod".
 1. Click "Deploy".
 1. Note the "Invoke URL" at the top and your API is now live.
 
