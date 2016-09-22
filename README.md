@@ -1,6 +1,12 @@
 # Nimbus
 ![Nimbus Logo](cloudy_robot.png)
 
+### Your friendly cloud bot
+
+Nimbus will allow you to interact with different cloud providers (current support AWS, GCE, DO, SL)
+
+![](nimbus_help.png)
+
 ### AWS Lambda
 1. Lambda management is done with [Apex](http://apex.run/)
 1. Install Apex `sudo curl https://raw.githubusercontent.com/apex/apex/master/install.sh | sh`
@@ -64,7 +70,7 @@
 1. if you you want to list your GCE instance, create keys as describe [here](https://developers.google.com/identity/protocols/application-default-credentials)
 1. For each of the keys decrypt using
     1. `aws kms encrypt --key-id alias/NimbusGoogle --plaintext fileb://"key file"" --output text "`
-1. Store tis values in a string set by the name of GCETokens in dynamodb.
+1. Store this values in a string set by the name of GCETokens in dynamodb.
 1. Go to [DynamoDB](https://console.aws.amazon.com/dynamodb/home?region=us-east-1) and create a table by the name of nimbus
 1. Add the following items to the table:
  1. BotName - Default "Nimbus"
