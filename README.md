@@ -8,7 +8,7 @@ Nimbus will allow you to interact with different cloud providers (current suppor
 ![](nimbus_help.png)
 
 ### Installation
-Following is a detailed installation guide for Ninmus. We're using Apex to simplify the process, so you'll need to install it locally and use as described below.
+Following is a detailed installation guide for Nimbus. We're using Apex to simplify the process, so you'll need to install it locally and use as described below.
 
 ### AWS Lambda
 1. Lambda management is done with [Apex](http://apex.run/)
